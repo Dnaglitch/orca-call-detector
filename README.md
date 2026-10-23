@@ -45,8 +45,6 @@ Detects calls only; does not identify pods yet.
 
 The machine-learning portion of this project was built by scratch by hand, but I used Claude to help develop the website, as I'm not as familiar with CSS, HTML, and Javascript as the Python coding language. Claude provided an example website which I then heavily modified.
 
-I, Gabriel Eni, created the project idea, found training data from the OrcaSound website, 
-
 # Data and credits
 Audio and labels: [Orcasound](https://www.orcasound.net) hydrophone network, Pod.Cast annotation system, licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). This project is non-commercial and shares alike under the same terms.
 
