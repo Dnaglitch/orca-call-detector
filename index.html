@@ -146,18 +146,13 @@ footer p+p{margin-top:6px}
 
 <footer>
   <p id="about">Detections are a starting point: listen to each one to confirm it.</p>
-  <p>Made by Gabriel Eni for the Congressional App Challenge 2026, with help from an AI assistant (Claude). Audio data from
+  <p>Made by Gabriel Eni for the Congressional App Challenge 2026. Audio data from
     <a href="https://www.orcasound.net">Orcasound</a> (CC BY-NC-SA 4.0).
     <span id="repoLink"></span></p>
 </footer>
 
 </div>
 <script>
-// ---- DSP: a faithful port of the notebook's melspec() -------------------
-// librosa.feature.melspectrogram(sr=16000, n_fft=1024, hop_length=512,
-//   n_mels=64, fmin=50, fmax=8000) -> power_to_db(ref=np.max)
-// Defaults reproduced: periodic Hann window, center=True with zero padding,
-// power=2, Slaney mel scale with Slaney area normalization, top_db=80.
 const DSP = (() => {
   function hzToMel(f) {
     const fSp = 200 / 3, minLogHz = 1000, minLogMel = minLogHz / fSp;
@@ -275,7 +270,6 @@ const DSP = (() => {
   return { melspecDb };
 })();
 // ---- Model: runs the exported Keras network in plain JavaScript ----------
-// Tensors are channels-last, row-major: index = (y * W + x) * C + c.
 const WebModel = (() => {
   function decode(b64) {
     const bin = atob(b64);
@@ -448,9 +442,6 @@ const Pipeline = (() => {
     return out;
   }
 
-  // One window -> model input: per-window dB spectrogram, pad/crop to
-  // target_frames with the window minimum (np.pad constant_values=S.min()),
-  // then the same normalization used in training.
   function windowInput(samples, w, pre) {
     const spec = DSP.melspecDb(samples.subarray(w.a, w.b), {
       sr: pre.sr, nFft: pre.n_fft, hop: pre.hop_length, nMels: pre.n_mels,
