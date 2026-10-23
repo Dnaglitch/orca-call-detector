@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Orca Call Detector</title>
+<meta name="description" content="Find likely Southern Resident killer whale calls in underwater recordings, right in your browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐋</text></svg>">
+<style>
+:root{
+  --bg:#F6F8F9; --panel:#FFFFFF; --text:#14222B; --muted:#5B6B78; --line:#D9E1E6;
+  --accent:#156082; --accent-text:#FFFFFF; --call:#E0A21B; --viz:#0D1B24;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root{ --bg:#0E161C; --panel:#152129; --text:#E6EEF2; --muted:#93A4AF; --line:#28363F;
+         --accent:#4FA3C7; --accent-text:#0E161C; --call:#F0B83A; --viz:#081016; color-scheme:dark; }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.55}
+.wrap{max-width:960px;margin:0 auto;padding:40px 20px 56px}
+a{color:var(--accent)}
+button,input{font:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[hidden]{display:none !important}
+
+header{margin-bottom:28px}
+h1{font-size:2rem;line-height:1.2;margin-bottom:8px}
+.sub{color:var(--muted);max-width:60ch}
+.model{margin-top:10px;font-size:.88rem;color:var(--muted)}
+.model.ok::before{content:"● ";color:#2E9E6B}
+.model.warn::before{content:"● ";color:var(--call)}
+
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px}
+.drop{display:flex;flex-wrap:wrap;align-items:center;gap:14px;border:2px dashed var(--line);border-radius:8px;padding:22px}
+.drop.over{border-color:var(--accent)}
+.btn{display:inline-flex;align-items:center;gap:6px;cursor:pointer;border:1px solid var(--line);background:var(--panel);
+  color:var(--text);border-radius:6px;padding:8px 14px;font-size:.95rem}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-text);font-weight:bold}
+.btn input{display:none}
+.btn:disabled{opacity:.4;cursor:default}
+.hint{color:var(--muted);font-size:.92rem}
+.samples{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:14px}
+.samples .label{color:var(--muted);font-size:.92rem;margin-right:2px}
+.notice{margin-top:14px;padding:12px 14px;border-radius:6px;background:rgba(224,162,27,.12);font-size:.92rem}
+.notice code{font-size:.9em}
+
+.files{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0 0}
+.files .btn[aria-pressed="true"]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.status{min-height:1.5em;margin-top:14px;color:var(--muted);font-size:.92rem}
+.status.error{color:#C2412D}
+.progress{height:4px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden}
+.progress i{display:block;height:100%;width:0;background:var(--accent)}
+
+.results{margin-top:20px}
+.head{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.head span{color:var(--muted);font-size:.92rem}
+audio{width:100%;margin-bottom:14px}
+.viz{background:var(--viz);border-radius:8px;overflow:hidden}
+.viz canvas{display:block;width:100%;cursor:pointer}
+#spec{height:200px}
+#lane{height:80px;border-top:1px solid rgba(255,255,255,.12)}
+.ticks{position:relative;height:24px;background:var(--panel);border:1px solid var(--line);border-top:0;border-radius:0 0 8px 8px}
+.ticks span{position:absolute;top:4px;transform:translateX(-50%);font-size:.75rem;color:var(--muted)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;margin:10px 0 0;font-size:.85rem;color:var(--muted)}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+
+.controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px;align-items:center;margin:22px 0}
+.controls label{display:flex;justify-content:space-between;font-weight:bold;margin-bottom:6px}
+.controls output{color:var(--accent)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.summary{font-size:1.05rem}
+.summary b{color:var(--accent)}
+.small{color:var(--muted);font-size:.85rem;margin-top:4px}
+
+h2{font-size:1.15rem;margin-bottom:8px}
+.events{list-style:none;border-top:1px solid var(--line)}
+.events li{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--line)}
+.events .t{flex:1;font-variant-numeric:tabular-nums}
+.events .p{color:var(--muted);font-size:.92rem;font-variant-numeric:tabular-nums}
+.empty{color:var(--muted);padding:12px 0}
+
+footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+footer p+p{margin-top:6px}
+
+@media (max-width:640px){
+  .controls{grid-template-columns:minmax(0,1fr)}
+  #spec{height:150px}
+  h1{font-size:1.6rem}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>🐋 Orca Call Detector</h1>
+  <p class="sub">Find likely Southern Resident killer whale calls in underwater recordings.
+    Your audio is processed in your browser and never uploaded.</p>
+  <p class="model" id="modelStatus">Loading model…</p>
+</header>
+
+<div class="panel">
+  <div class="drop" id="drop">
+    <label class="btn primary">Choose audio files<input type="file" id="file" multiple accept="audio/*,.wav,.mp3,.flac,.ogg,.m4a"></label>
+    <span class="hint">or drop WAV, MP3, or FLAC files here (up to 10 minutes each)</span>
+  </div>
+  <div class="samples" id="samples" hidden><span class="label">Try a sample:</span></div>
+  <div class="notice" id="noModel" hidden>
+    The model file <code>model/model_web.json</code> wasn’t found, so only spectrograms are shown.
+    <label class="btn" style="margin-left:8px">Load model file<input type="file" id="modelFile" accept=".json,application/json"></label>
+  </div>
+</div>
+
+<nav class="files" id="fileList" aria-label="Your files" hidden></nav>
+<p class="status" id="status" role="status" aria-live="polite"></p>
+<div class="progress" id="progress" hidden><i></i></div>
+
+<section class="results" id="results" hidden aria-label="Results">
+  <div class="head"><strong id="fileName"></strong><span id="fileMeta"></span></div>
+  <audio id="player" controls preload="auto"></audio>
+  <div class="viz">
+    <canvas id="spec" aria-label="Spectrogram of the recording, with likely orca calls highlighted. Click to jump to a moment."></canvas>
+    <canvas id="lane" aria-label="Orca call probability over time. Click to jump to a moment."></canvas>
+  </div>
+  <div class="ticks" id="ticks" aria-hidden="true"></div>
+  <div class="legend">
+    <span><i style="background:var(--call)"></i>Likely orca call</span>
+    <span>Top: the sound (pitch up, time across) · Bottom: call probability for each 2.45-second window</span>
+  </div>
+
+  <div class="controls">
+    <div>
+      <label for="thr"><span>Detection threshold</span><output id="thrOut" for="thr">0.50</output></label>
+      <input type="range" id="thr" min="0.05" max="0.95" step="0.01" value="0.5">
+      <p class="small">Lower finds more calls, with more false alarms.</p>
+    </div>
+    <p class="summary" id="summary"></p>
+  </div>
+
+  <h2>Likely orca calls</h2>
+  <ol class="events" id="events"></ol>
+</section>
+
+<footer>
+  <p id="about">Detections are a starting point: listen to each one to confirm it.</p>
+  <p>Made by Gabriel Eni for the Congressional App Challenge 2026, with help from an AI assistant (Claude). Audio data from
+    <a href="https://www.orcasound.net">Orcasound</a> (CC BY-NC-SA 4.0).
+    <span id="repoLink"></span></p>
+</footer>
+
+</div>
+<script>
+// ---- DSP: a faithful port of the notebook's melspec() -------------------
+// librosa.feature.melspectrogram(sr=16000, n_fft=1024, hop_length=512,
+//   n_mels=64, fmin=50, fmax=8000) -> power_to_db(ref=np.max)
+// Defaults reproduced: periodic Hann window, center=True with zero padding,
+// power=2, Slaney mel scale with Slaney area normalization, top_db=80.
+const DSP = (() => {
+  function hzToMel(f) {
+    const fSp = 200 / 3, minLogHz = 1000, minLogMel = minLogHz / fSp;
+    const logstep = Math.log(6.4) / 27;
+    return f >= minLogHz ? minLogMel + Math.log(f / minLogHz) / logstep : f / fSp;
+  }
+  function melToHz(m) {
+    const fSp = 200 / 3, minLogHz = 1000, minLogMel = minLogHz / fSp;
+    const logstep = Math.log(6.4) / 27;
+    return m >= minLogMel ? minLogHz * Math.exp(logstep * (m - minLogMel)) : fSp * m;
+  }
+
+  const cache = {};
+  function setup(sr, nFft, nMels, fmin, fmax) {
+    const key = [sr, nFft, nMels, fmin, fmax].join(",");
+    if (cache[key]) return cache[key];
+    const nBins = nFft / 2 + 1;
+    const fftFreqs = new Float64Array(nBins);
+    for (let j = 0; j < nBins; j++) fftFreqs[j] = (j * sr) / nFft;
+    const mMin = hzToMel(fmin), mMax = hzToMel(fmax);
+    const melF = new Float64Array(nMels + 2);
+    for (let i = 0; i < nMels + 2; i++) melF[i] = melToHz(mMin + ((mMax - mMin) * i) / (nMels + 1));
+    const W = [];
+    for (let i = 0; i < nMels; i++) {
+      const row = new Float64Array(nBins);
+      const d0 = melF[i + 1] - melF[i], d1 = melF[i + 2] - melF[i + 1];
+      const enorm = 2 / (melF[i + 2] - melF[i]);
+      for (let j = 0; j < nBins; j++) {
+        const lower = (fftFreqs[j] - melF[i]) / d0;
+        const upper = (melF[i + 2] - fftFreqs[j]) / d1;
+        row[j] = Math.max(0, Math.min(lower, upper)) * enorm;
+      }
+      W.push(row);
+    }
+    const win = new Float64Array(nFft);
+    for (let n = 0; n < nFft; n++) win[n] = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / nFft);
+    // bit reversal + twiddles for radix-2 FFT
+    const levels = Math.log2(nFft) | 0;
+    const rev = new Uint32Array(nFft);
+    for (let i = 0; i < nFft; i++) {
+      let r = 0;
+      for (let b = 0; b < levels; b++) r |= ((i >>> b) & 1) << (levels - 1 - b);
+      rev[i] = r;
+    }
+    const cosT = new Float64Array(nFft / 2), sinT = new Float64Array(nFft / 2);
+    for (let i = 0; i < nFft / 2; i++) {
+      cosT[i] = Math.cos((2 * Math.PI * i) / nFft);
+      sinT[i] = Math.sin((2 * Math.PI * i) / nFft);
+    }
+    return (cache[key] = { nBins, W, win, rev, cosT, sinT });
+  }
+
+  function fft(re, im, s, nFft) {
+    for (let i = 0; i < nFft; i++) {
+      const j = s.rev[i];
+      if (j > i) {
+        let t = re[i]; re[i] = re[j]; re[j] = t;
+        t = im[i]; im[i] = im[j]; im[j] = t;
+      }
+    }
+    for (let size = 2; size <= nFft; size <<= 1) {
+      const half = size >>> 1, step = nFft / size;
+      for (let i = 0; i < nFft; i += size) {
+        for (let j = i, k = 0; j < i + half; j++, k += step) {
+          const tr = re[j + half] * s.cosT[k] + im[j + half] * s.sinT[k];
+          const ti = -re[j + half] * s.sinT[k] + im[j + half] * s.cosT[k];
+          re[j + half] = re[j] - tr; im[j + half] = im[j] - ti;
+          re[j] += tr; im[j] += ti;
+        }
+      }
+    }
+  }
+
+  // Returns {data: Float32Array(nMels * frames), frames} in dB, row-major [mel][frame].
+  function melspecDb(y, cfg) {
+    const { sr, nFft = 1024, hop, nMels, fmin, fmax } = cfg;
+    const s = setup(sr, nFft, nMels, fmin, fmax);
+    const pad = nFft / 2;
+    const frames = 1 + Math.floor(y.length / hop);
+    const out = new Float64Array(nMels * frames);
+    const re = new Float64Array(nFft), im = new Float64Array(nFft);
+    const pow = new Float64Array(s.nBins);
+    for (let f = 0; f < frames; f++) {
+      const start = f * hop - pad;
+      for (let n = 0; n < nFft; n++) {
+        const idx = start + n;
+        re[n] = idx >= 0 && idx < y.length ? y[idx] * s.win[n] : 0;
+        im[n] = 0;
+      }
+      fft(re, im, s, nFft);
+      for (let j = 0; j < s.nBins; j++) pow[j] = re[j] * re[j] + im[j] * im[j];
+      for (let m = 0; m < nMels; m++) {
+        const w = s.W[m];
+        let acc = 0;
+        for (let j = 0; j < s.nBins; j++) if (w[j]) acc += w[j] * pow[j];
+        out[m * frames + f] = acc;
+      }
+    }
+    // power_to_db(ref=np.max or a fixed value, amin=1e-10, top_db=80)
+    let ref = 0;
+    if (cfg.ref === undefined || cfg.ref === "max") {
+      for (let i = 0; i < out.length; i++) if (out[i] > ref) ref = out[i];
+    } else ref = Number(cfg.ref);
+    const refDb = 10 * Math.log10(Math.max(1e-10, ref));
+    const db = new Float32Array(out.length);
+    let peak = -Infinity;
+    for (let i = 0; i < out.length; i++) {
+      db[i] = 10 * Math.log10(Math.max(1e-10, out[i])) - refDb;
+      if (db[i] > peak) peak = db[i];
+    }
+    for (let i = 0; i < db.length; i++) if (db[i] < peak - 80) db[i] = peak - 80;
+    return { data: db, frames };
+  }
+
+  return { melspecDb };
+})();
+// ---- Model: runs the exported Keras network in plain JavaScript ----------
+// Tensors are channels-last, row-major: index = (y * W + x) * C + c.
+const WebModel = (() => {
+  function decode(b64) {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Float32Array(bytes.buffer);
+  }
+
+  function act(name, v) {
+    if (name === "relu") return v > 0 ? v : 0;
+    if (name === "sigmoid") return 1 / (1 + Math.exp(-v));
+    if (name === "tanh") return Math.tanh(v);
+    return v; // linear
+  }
+  function applyAct(t, name) {
+    if (!name || name === "linear") return t;
+    if (name === "softmax") {
+      let m = -Infinity, s = 0;
+      for (const v of t.d) m = Math.max(m, v);
+      for (let i = 0; i < t.d.length; i++) { t.d[i] = Math.exp(t.d[i] - m); s += t.d[i]; }
+      for (let i = 0; i < t.d.length; i++) t.d[i] /= s;
+      return t;
+    }
+    for (let i = 0; i < t.d.length; i++) t.d[i] = act(name, t.d[i]);
+    return t;
+  }
+
+  function conv2d(t, L) {
+    const [kh, kw, cin, cout] = L.w[0].shape;
+    const K = L.w[0].v, B = L.w[1] ? L.w[1].v : null;
+    const [sh, sw] = L.config.strides || [1, 1];
+    const same = L.config.padding === "same";
+    const H = t.h, W = t.w;
+    const oh = same ? Math.ceil(H / sh) : Math.floor((H - kh) / sh) + 1;
+    const ow = same ? Math.ceil(W / sw) : Math.floor((W - kw) / sw) + 1;
+    const pt = same ? Math.floor(Math.max((oh - 1) * sh + kh - H, 0) / 2) : 0;
+    const pl = same ? Math.floor(Math.max((ow - 1) * sw + kw - W, 0) / 2) : 0;
+    const out = new Float32Array(oh * ow * cout);
+    for (let oy = 0; oy < oh; oy++) {
+      for (let ox = 0; ox < ow; ox++) {
+        const o = (oy * ow + ox) * cout;
+        if (B) for (let c = 0; c < cout; c++) out[o + c] = B[c];
+        for (let ky = 0; ky < kh; ky++) {
+          const iy = oy * sh + ky - pt;
+          if (iy < 0 || iy >= H) continue;
+          for (let kx = 0; kx < kw; kx++) {
+            const ix = ox * sw + kx - pl;
+            if (ix < 0 || ix >= W) continue;
+            const ib = (iy * W + ix) * cin;
+            const kb = (ky * kw + kx) * cin * cout;
+            for (let ci = 0; ci < cin; ci++) {
+              const v = t.d[ib + ci];
+              if (v === 0) continue;
+              const kr = kb + ci * cout;
+              for (let c = 0; c < cout; c++) out[o + c] += v * K[kr + c];
+            }
+          }
+        }
+      }
+    }
+    return applyAct({ h: oh, w: ow, c: cout, d: out }, L.config.activation);
+  }
+
+  function maxpool(t, L) {
+    const [ph, pw] = L.config.pool_size || [2, 2];
+    const [sh, sw] = L.config.strides || [ph, pw];
+    const same = L.config.padding === "same";
+    const oh = same ? Math.ceil(t.h / sh) : Math.floor((t.h - ph) / sh) + 1;
+    const ow = same ? Math.ceil(t.w / sw) : Math.floor((t.w - pw) / sw) + 1;
+    const pt = same ? Math.floor(Math.max((oh - 1) * sh + ph - t.h, 0) / 2) : 0;
+    const pl = same ? Math.floor(Math.max((ow - 1) * sw + pw - t.w, 0) / 2) : 0;
+    const out = new Float32Array(oh * ow * t.c).fill(-Infinity);
+    for (let oy = 0; oy < oh; oy++)
+      for (let ox = 0; ox < ow; ox++)
+        for (let ky = 0; ky < ph; ky++) {
+          const iy = oy * sh + ky - pt;
+          if (iy < 0 || iy >= t.h) continue;
+          for (let kx = 0; kx < pw; kx++) {
+            const ix = ox * sw + kx - pl;
+            if (ix < 0 || ix >= t.w) continue;
+            const ib = (iy * t.w + ix) * t.c, o = (oy * ow + ox) * t.c;
+            for (let c = 0; c < t.c; c++) if (t.d[ib + c] > out[o + c]) out[o + c] = t.d[ib + c];
+          }
+        }
+    return { h: oh, w: ow, c: t.c, d: out };
+  }
+
+  function globalPool(t, mode) {
+    const out = new Float32Array(t.c).fill(mode === "max" ? -Infinity : 0);
+    const n = t.h * t.w;
+    for (let i = 0; i < n; i++)
+      for (let c = 0; c < t.c; c++) {
+        const v = t.d[i * t.c + c];
+        if (mode === "max") { if (v > out[c]) out[c] = v; } else out[c] += v;
+      }
+    if (mode !== "max") for (let c = 0; c < t.c; c++) out[c] /= n;
+    return { h: 1, w: 1, c: t.c, d: out, flat: true };
+  }
+
+  function batchnorm(t, L) {
+    const center = L.config.center !== false, scale = L.config.scale !== false;
+    let i = 0;
+    const gamma = scale ? L.w[i++].v : null, beta = center ? L.w[i++].v : null;
+    const mean = L.w[i++].v, variance = L.w[i++].v;
+    const eps = L.config.epsilon ?? 1e-3;
+    const C = t.c, out = new Float32Array(t.d.length);
+    for (let k = 0; k < t.d.length; k++) {
+      const c = k % C;
+      let v = (t.d[k] - mean[c]) / Math.sqrt(variance[c] + eps);
+      if (gamma) v *= gamma[c];
+      if (beta) v += beta[c];
+      out[k] = v;
+    }
+    return { ...t, d: out };
+  }
+
+  function dense(t, L) {
+    const [nin, nout] = L.w[0].shape;
+    const K = L.w[0].v, B = L.w[1] ? L.w[1].v : null;
+    const out = new Float32Array(nout);
+    for (let o = 0; o < nout; o++) out[o] = B ? B[o] : 0;
+    for (let i = 0; i < nin; i++) {
+      const v = t.d[i];
+      if (v === 0) continue;
+      const r = i * nout;
+      for (let o = 0; o < nout; o++) out[o] += v * K[r + o];
+    }
+    return applyAct({ h: 1, w: 1, c: nout, d: out, flat: true }, L.config.activation);
+  }
+
+  function load(doc) {
+    if (doc.format !== "orca-web-v1") throw new Error("Unrecognized model file format.");
+    const layers = doc.layers.map((l) => ({
+      type: l.type, config: l.config || {},
+      w: l.weights.map((w) => ({ shape: w.shape, v: decode(w.b64) })),
+    }));
+    const [H, W, C] = doc.input_shape;
+    function predict(input) { // input: Float32Array of H*W*C, channels-last
+      let t = { h: H, w: W, c: C, d: input };
+      for (const L of layers) {
+        switch (L.type) {
+          case "Conv2D": t = conv2d(t, L); break;
+          case "MaxPooling2D": t = maxpool(t, L); break;
+          case "GlobalAveragePooling2D": t = globalPool(t, "avg"); break;
+          case "GlobalMaxPooling2D": t = globalPool(t, "max"); break;
+          case "BatchNormalization": t = batchnorm(t, L); break;
+          case "Activation": t = applyAct({ ...t, d: Float32Array.from(t.d) }, L.config.activation); break;
+          case "Flatten": t = { h: 1, w: 1, c: t.d.length, d: t.d, flat: true }; break;
+          case "Dense": t = dense(t, L); break;
+          case "Dropout": break; // inactive at inference
+          default: throw new Error("Unsupported layer: " + L.type);
+        }
+      }
+      return t.d;
+    }
+    return { predict, inputShape: doc.input_shape, layers: layers.length };
+  }
+
+  return { load };
+})();
+// ---- Pipeline: the notebook's sliding-window loop, window by window ------
+const Pipeline = (() => {
+  function windows(nSamples, pre) {
+    const dur = nSamples / pre.sr, out = [];
+    for (let k = 0; ; k++) {
+      const t = k * pre.hop_s;
+      if (t + pre.win_s > dur) break;
+      out.push({ t, a: Math.floor(t * pre.sr), b: Math.floor((t + pre.win_s) * pre.sr) });
+    }
+    return out;
+  }
+
+  // One window -> model input: per-window dB spectrogram, pad/crop to
+  // target_frames with the window minimum (np.pad constant_values=S.min()),
+  // then the same normalization used in training.
+  function windowInput(samples, w, pre) {
+    const spec = DSP.melspecDb(samples.subarray(w.a, w.b), {
+      sr: pre.sr, nFft: pre.n_fft, hop: pre.hop_length, nMels: pre.n_mels,
+      fmin: pre.fmin, fmax: pre.fmax, ref: pre.db_ref,
+    });
+    const M = pre.n_mels, T = pre.target_frames, F = spec.frames;
+    let min = Infinity;
+    for (const v of spec.data) if (v < min) min = v;
+    const x = new Float32Array(M * T);
+    const norm = pre.norm || { type: "db80" };
+    for (let m = 0; m < M; m++)
+      for (let f = 0; f < T; f++) {
+        const db = f < F ? spec.data[m * F + f] : min;
+        x[m * T + f] = norm.type === "mean_invstd"
+          ? (db - norm.mean[m]) * norm.invstd[m]
+          : (db + 80) / 80;
+      }
+    return x;
+  }
+
+  return { windows, windowInput };
+})();
+// ---- Audio: read WAV directly and resample like librosa ------------------
+// The browser's built-in resampler differs from librosa's (soxr), which
+// matters once loudness is kept. So WAV files are parsed here and resampled
+// with a long Kaiser-windowed sinc filter shaped like soxr's high-quality mode.
+const AudioIn = (() => {
+  function parseWav(buf) {
+    const v = new DataView(buf);
+    const tag = (o) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+    if (buf.byteLength < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return null;
+    let fmt = null, off = 12;
+    while (off + 8 <= buf.byteLength) {
+      const id = tag(off), size = v.getUint32(off + 4, true), body = off + 8;
+      if (id === "fmt ") {
+        let format = v.getUint16(body, true);
+        const ch = v.getUint16(body + 2, true), sr = v.getUint32(body + 4, true), bits = v.getUint16(body + 14, true);
+        if (format === 0xfffe && size >= 26) format = v.getUint16(body + 24, true); // WAVE_FORMAT_EXTENSIBLE
+        fmt = { format, ch, sr, bits };
+      } else if (id === "data" && fmt) {
+        const { format, ch, sr, bits } = fmt, bps = bits / 8;
+        const len = Math.min(size, buf.byteLength - body), frames = Math.floor(len / (bps * ch));
+        const out = new Float32Array(frames);
+        for (let i = 0; i < frames; i++) {
+          let s = 0;
+          for (let c = 0; c < ch; c++) {
+            const o = body + (i * ch + c) * bps;
+            let x;
+            if (format === 3 && bits === 32) x = v.getFloat32(o, true);
+            else if (format === 3 && bits === 64) x = v.getFloat64(o, true);
+            else if (format === 1 && bits === 16) x = v.getInt16(o, true) / 32768;
+            else if (format === 1 && bits === 24) { let n = v.getUint8(o) | (v.getUint8(o + 1) << 8) | (v.getInt8(o + 2) << 16); x = n / 8388608; }
+            else if (format === 1 && bits === 32) x = v.getInt32(o, true) / 2147483648;
+            else if (format === 1 && bits === 8) x = (v.getUint8(o) - 128) / 128;
+            else return null;
+            s += x;
+          }
+          out[i] = s / ch;   // librosa's to_mono: average of channels
+        }
+        return { samples: out, sr };
+      }
+      off = body + size + (size & 1);
+    }
+    return null;
+  }
+
+  function besselI0(x) { let s = 1, t = 1; for (let k = 1; k < 50; k++) { t *= (x / (2 * k)) ** 2; s += t; if (t < 1e-12 * s) break; } return s; }
+
+  async function resample(x, srIn, srOut) {
+    if (srIn === srOut) return x;
+    const ratio = srOut / srIn, nOut = Math.ceil(x.length * ratio);
+    const nyq = Math.min(srIn, srOut) / 2;
+    const fc = (0.9565 * nyq) / srIn;          // cutoff, cycles per input sample
+    const hw = Math.ceil(112 * Math.max(1, srIn / srOut) * (srIn / Math.max(srIn, srOut)) + 8);
+    const beta = 12.27, i0b = besselI0(beta), RES = 512;
+    const table = new Float64Array(hw * RES + 2);
+    for (let i = 0; i < table.length; i++) {
+      const t = i / RES, r = t / hw;
+      const w = r <= 1 ? besselI0(beta * Math.sqrt(1 - r * r)) / i0b : 0;
+      const a = 2 * Math.PI * fc * t;
+      table[i] = 2 * fc * (t === 0 ? 1 : Math.sin(a) / a) * w;
+    }
+    const out = new Float32Array(nOut);
+    for (let k = 0; k < nOut; k++) {
+      if (k % 120000 === 119999) await new Promise((r) => setTimeout(r, 0)); // keep the page responsive
+      const tau = k / ratio, j0 = Math.max(0, Math.ceil(tau - hw)), j1 = Math.min(x.length - 1, Math.floor(tau + hw));
+      let acc = 0;
+      for (let j = j0; j <= j1; j++) {
+        const d = Math.abs(tau - j) * RES, i = d | 0, f = d - i;
+        acc += x[j] * (table[i] + (table[i + 1] - table[i]) * f);
+      }
+      out[k] = acc;
+    }
+    return out;
+  }
+
+  return { parseWav, resample };
+})();
+
+// ---- Settings --------------------------------------------------------------
+// Samples are found automatically in data/samples/ when the site runs on GitHub Pages.
+// To list them by hand instead: [{ label: "Name", url: "data/samples/file.wav" }]
+const SAMPLES = [];
+const MODEL_URL = "model/model_web.json";
+const MAX_SECONDS = 600;
+
+const DEFAULT_PRE = { sr: 16000, win_s: 2.45, hop_s: 1.0, n_fft: 1024, hop_length: 512, n_mels: 64,
+  fmin: 50, fmax: 8000, target_frames: 77, db_ref: "max", norm: { type: "db80" } };
+
+// ---- State -------------------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+let model = null, meta = {}, pre = { ...DEFAULT_PRE };
+let threshold = 0.5;
+const files = [];          // { name, blob, url, samples?, result? }
+let current = -1;
+let busy = false;
+
+const VIRIDIS = ["#440154","#482878","#3e4989","#31688e","#26828e","#1f9e89","#35b779","#6ece58","#b5de2b","#fde725"]
+  .map((h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)));
+function viridis(v) {
+  v = Math.min(1, Math.max(0, v)) * (VIRIDIS.length - 1);
+  const i = Math.min(VIRIDIS.length - 2, Math.floor(v)), f = v - i, a = VIRIDIS[i], b = VIRIDIS[i + 1];
+  return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
+}
+const fmtT = (s) => { const m = Math.floor(s / 60), r = s - m * 60; return `${m}:${r.toFixed(1).padStart(4, "0")}`; };
+const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+function setStatus(msg, isError) { $("status").textContent = msg; $("status").classList.toggle("error", !!isError); }
+function setProgress(f) { $("progress").hidden = f === null; if (f !== null) $("progress").firstElementChild.style.width = (f * 100).toFixed(1) + "%"; }
+
+// ---- Model -------------------------------------------------------------------
+function useModel(doc) {
+  model = WebModel.load(doc);
+  pre = { ...DEFAULT_PRE, ...(doc.preprocessing || {}) };
+  meta = doc.meta || {};
+  setThreshold(typeof meta.threshold === "number" ? meta.threshold : 0.5);
+  $("modelStatus").textContent = `Model ${meta.version || ""} loaded`;
+  $("modelStatus").className = "model ok";
+  $("noModel").hidden = true;
+  if (meta.recall != null && meta.precision != null) {
+    $("about").textContent = `Detections are a starting point: listen to each one to confirm it. In testing, at a threshold of ` +
+      `${(meta.threshold ?? 0.5).toFixed(2)}, the model found ${Math.round(meta.recall * 100)}% of calls, and ` +
+      `${Math.round(meta.precision * 100)}% of its detections were real calls.`;
+  }
+  files.forEach((f) => (f.result = null));
+  if (current >= 0) show(current);
+}
+fetch(MODEL_URL).then((r) => { if (!r.ok) throw 0; return r.json(); }).then(useModel).catch(() => {
+  $("modelStatus").textContent = "No model loaded — spectrograms only";
+  $("modelStatus").className = "model warn";
+  $("noModel").hidden = false;
+});
+$("modelFile").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try { useModel(JSON.parse(await f.text())); } catch (err) { setStatus("That file isn’t an exported model (model_web.json).", true); }
+});
+
+// ---- Samples -----------------------------------------------------------------
+function detectRepo() {
+  if (window.ORCA_REPO) return window.ORCA_REPO;
+  const host = location.hostname;
+  if (!host.endsWith(".github.io")) return null;
+  const owner = host.split(".")[0];
+  const first = location.pathname.split("/").filter(Boolean)[0];
+  return `${owner}/${first && !first.includes(".") ? first : host}`;
+}
+async function loadSamples() {
+  let list = SAMPLES.slice();
+  const repo = detectRepo();
+  if (repo) $("repoLink").innerHTML = `<a href="https://github.com/${repo}">Source on GitHub</a>.`;
+  if (!list.length && repo) {
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/contents/data/samples`);
+      if (r.ok) list = (await r.json())
+        .filter((it) => it.type === "file" && /\.(wav|mp3|flac|ogg|m4a)$/i.test(it.name))
+        .map((it) => ({ label: (s => s.charAt(0).toUpperCase() + s.slice(1))(it.name.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ")), url: "data/samples/" + encodeURIComponent(it.name) }));
+    } catch (e) { /* no samples shown */ }
+  }
+  if (!list.length) return;
+  $("samples").hidden = false;
+  for (const s of list) {
+    const b = document.createElement("button");
+    b.className = "btn"; b.textContent = s.label;
+    b.addEventListener("click", async () => {
+      const existing = files.findIndex((f) => f.url === s.url);
+      if (existing >= 0) return show(existing);
+      setStatus(`Loading ${s.label}…`);
+      try {
+        const r = await fetch(s.url); if (!r.ok) throw 0;
+        addFiles([{ name: s.label, blob: await r.blob(), url: s.url }]);
+      } catch (e) { setStatus(`Couldn’t load ${s.url}.`, true); }
+    });
+    $("samples").appendChild(b);
+  }
+}
+loadSamples();
+
+// ---- Files -------------------------------------------------------------------
+function addFiles(list) {
+  const first = files.length;
+  for (const f of list) files.push(f);
+  renderFileList();
+  show(first);
+}
+function renderFileList() {
+  const nav = $("fileList");
+  nav.hidden = files.length < 2;
+  nav.innerHTML = "";
+  files.forEach((f, i) => {
+    const b = document.createElement("button");
+    b.className = "btn"; b.textContent = f.name;
+    b.setAttribute("aria-pressed", String(i === current));
+    b.addEventListener("click", () => show(i));
+    nav.appendChild(b);
+  });
+}
+$("file").addEventListener("change", (e) => {
+  const list = [...e.target.files].map((f) => ({ name: f.name, blob: f }));
+  if (list.length) addFiles(list);
+  e.target.value = "";
+});
+const drop = $("drop");
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => {
+  const list = [...e.dataTransfer.files].map((f) => ({ name: f.name, blob: f }));
+  if (list.length) addFiles(list);
+});
+
+// ---- Audio + analysis ----------------------------------------------------------
+async function decodeMono(buf, sr) {
+  const wav = AudioIn.parseWav(buf);
+  if (wav) {
+    if (wav.sr !== sr) setStatus(`Converting ${wav.sr / 1000} kHz audio to ${sr / 1000} kHz…`);
+    return AudioIn.resample(wav.samples, wav.sr, sr);
+  }
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC(); const audio = await ctx.decodeAudioData(buf.slice(0)); ctx.close();
+  const n = audio.length, ch = audio.numberOfChannels, mono = new Float32Array(n);
+  for (let c = 0; c < ch; c++) { const d = audio.getChannelData(c); for (let i = 0; i < n; i++) mono[i] += d[i] / ch; }
+  return AudioIn.resample(mono, audio.sampleRate, sr);
+}
+
+async function analyze(f) {
+  setStatus(`Reading ${f.name}…`); setProgress(0);
+  if (!f.samples) {
+    const samples = await decodeMono(await f.blob.arrayBuffer(), pre.sr);
+    const dur = samples.length / pre.sr;
+    if (dur < pre.win_s) throw new Error(`This clip is ${dur.toFixed(1)} s long. It needs to be at least ${pre.win_s} s.`);
+    if (dur > MAX_SECONDS) throw new Error(`This clip is ${(dur / 60).toFixed(1)} minutes long. Please trim it to under 10 minutes.`);
+    f.samples = samples;
+  }
+  const samples = f.samples, dur = samples.length / pre.sr;
+  setStatus("Drawing the spectrogram…");
+  await new Promise((r) => setTimeout(r, 15));
+  const full = DSP.melspecDb(samples, { sr: pre.sr, nFft: pre.n_fft, hop: pre.hop_length, nMels: pre.n_mels,
+    fmin: pre.fmin, fmax: pre.fmax, ref: "max" });
+  const sample = [];
+  for (let i = 0; i < full.data.length; i += Math.max(1, Math.floor(full.data.length / 20000))) sample.push(full.data[i]);
+  sample.sort((a, b) => a - b);
+  const lo = sample[Math.floor(sample.length * 0.05)], span = Math.max(1e-6, -lo);
+  const off = document.createElement("canvas");
+  off.width = full.frames; off.height = pre.n_mels;
+  const img = off.getContext("2d").createImageData(full.frames, pre.n_mels);
+  for (let m = 0; m < pre.n_mels; m++) for (let k = 0; k < full.frames; k++) {
+    const [r, g, b] = viridis((full.data[m * full.frames + k] - lo) / span);
+    const o = ((pre.n_mels - 1 - m) * full.frames + k) * 4;
+    img.data[o] = r; img.data[o + 1] = g; img.data[o + 2] = b; img.data[o + 3] = 255;
+  }
+  off.getContext("2d").putImageData(img, 0, 0);
+
+  const wins = Pipeline.windows(samples.length, pre);
+  const probs = new Float32Array(wins.length).fill(NaN);
+  if (model) {
+    for (let i = 0; i < wins.length; i++) {
+      probs[i] = model.predict(Pipeline.windowInput(samples, wins[i], pre))[0];
+      if (i % 4 === 3) {
+        setStatus(`Listening… window ${i + 1} of ${wins.length}`);
+        setProgress((i + 1) / wins.length);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  }
+  f.result = { wins, probs, spec: off, dur };
+}
+
+async function show(i) {
+  if (busy) return;
+  current = i; renderFileList();
+  const f = files[i];
+  if (f.objectUrl == null) f.objectUrl = URL.createObjectURL(f.blob);
+  $("player").src = f.objectUrl;
+  busy = true;
+  try {
+    if (!f.result) await analyze(f);
+    setProgress(null);
+    const n = f.result.wins.length;
+    setStatus(model ? `Checked ${n} windows in ${f.name}.` : "Spectrogram ready. Load a model to find calls.");
+    $("results").hidden = false;
+    $("fileName").textContent = f.name;
+    $("fileMeta").textContent = fmtT(f.result.dur);
+    renderTicks(); render();
+  } catch (err) {
+    setProgress(null);
+    const msg = err && err.message && !/decode|EncodingError|Unable/i.test(err.message) ? err.message
+      : "This file couldn’t be read as audio. Try a WAV or MP3 recording.";
+    setStatus(msg, true);
+  } finally { busy = false; }
+}
+
+// ---- Drawing -------------------------------------------------------------------
+function events(res) {
+  if (!model) return [];
+  const out = []; let cur = null;
+  res.wins.forEach((w, i) => {
+    const p = res.probs[i];
+    if (p >= threshold) {
+      if (cur && i === cur.last + 1) { cur.last = i; cur.end = w.t + pre.win_s; cur.peak = Math.max(cur.peak, p); }
+      else { cur = { last: i, start: w.t, end: w.t + pre.win_s, peak: p }; out.push(cur); }
+    } else cur = null;
+  });
+  return out;
+}
+function sizeCanvas(c) {
+  const dpr = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (c.width !== Math.round(w * dpr) || c.height !== Math.round(h * dpr)) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  const ctx = c.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); return [ctx, w, h];
+}
+function render() {
+  const f = files[current]; if (!f || !f.result) return;
+  const res = f.result, dur = res.dur, evs = events(res), gold = css("--call");
+  const now = $("player").currentTime || 0;
+
+  const [ctx, W, H] = sizeCanvas($("spec"));
+  ctx.imageSmoothingEnabled = true; ctx.drawImage(res.spec, 0, 0, W, H);
+  const x = (t) => (t / dur) * W;
+  for (const e of evs) {
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; ctx.fillRect(x(e.start), 0, x(e.end) - x(e.start), H);
+    ctx.fillStyle = gold; ctx.fillRect(x(e.start), 0, x(e.end) - x(e.start), 4); ctx.fillRect(x(e.start), H - 4, x(e.end) - x(e.start), 4);
+  }
+  ctx.fillStyle = "#FFFFFF"; ctx.fillRect(x(now), 0, 2, H);
+
+  const [lc, LW, LH] = sizeCanvas($("lane"));
+  lc.clearRect(0, 0, LW, LH);
+  const lx = (t) => (t / dur) * LW, pad = 8, ph = LH - pad * 2;
+  if (!model) {
+    lc.fillStyle = "rgba(255,255,255,.6)"; lc.font = "13px Arial"; lc.textAlign = "center";
+    lc.fillText("No model loaded", LW / 2, LH / 2 + 4);
+  } else {
+    lc.beginPath();
+    res.wins.forEach((w, i) => {
+      const px = lx(w.t + pre.win_s / 2), py = pad + ph - res.probs[i] * ph;
+      i ? lc.lineTo(px, py) : lc.moveTo(px, py);
+    });
+    lc.strokeStyle = "rgba(255,255,255,.55)"; lc.lineWidth = 1.5; lc.stroke();
+    res.wins.forEach((w, i) => {
+      const p = res.probs[i]; if (p < threshold) return;
+      const px = lx(w.t + pre.win_s / 2), py = pad + ph - p * ph;
+      lc.fillStyle = gold; lc.beginPath(); lc.arc(px, py, 3.5, 0, 2 * Math.PI); lc.fill();
+    });
+    const ty = pad + ph - threshold * ph;
+    lc.setLineDash([4, 4]); lc.strokeStyle = gold; lc.lineWidth = 1;
+    lc.beginPath(); lc.moveTo(0, ty); lc.lineTo(LW, ty); lc.stroke(); lc.setLineDash([]);
+    lc.fillStyle = "#FFFFFF"; lc.fillRect(lx(now), 0, 2, LH);
+  }
+
+  const list = $("events"); list.innerHTML = "";
+  if (!model) {
+    $("summary").textContent = "";
+    list.innerHTML = '<li class="empty">Load a model to find calls.</li>';
+    return;
+  }
+  $("summary").innerHTML = evs.length
+    ? `<b>${evs.length}</b> likely orca call${evs.length === 1 ? "" : "s"} in ${fmtT(dur)} of audio.`
+    : `No likely orca calls above ${threshold.toFixed(2)}.`;
+  if (!evs.length) { list.innerHTML = '<li class="empty">Nothing found at this threshold. Try lowering it.</li>'; return; }
+  for (const e of evs) {
+    const li = document.createElement("li");
+    li.innerHTML = `<span class="t">${fmtT(e.start)} – ${fmtT(e.end)}</span><span class="p">peak score ${e.peak.toFixed(2)}</span>`;
+    const b = document.createElement("button"); b.className = "btn"; b.textContent = "▶ Play";
+    b.setAttribute("aria-label", `Play ${fmtT(e.start)} to ${fmtT(e.end)}`);
+    b.addEventListener("click", () => { const p = $("player"); p.currentTime = e.start; p.play(); });
+    li.appendChild(b); list.appendChild(li);
+  }
+}
+function renderTicks() {
+  const el = $("ticks"); el.innerHTML = ""; const dur = files[current].result.dur;
+  const maxTicks = Math.max(2, Math.floor(el.clientWidth / 70));
+  const step = [1, 2, 5, 10, 15, 30, 60, 120, 300].find((s) => dur / s <= maxTicks) || 300;
+  for (let t = 0; t <= dur + 1e-6; t += step) {
+    const s = document.createElement("span");
+    s.style.left = `${(t / dur) * 100}%`; s.textContent = fmtT(t).replace(/\.0$/, "");
+    if (t === 0) s.style.transform = "none";
+    else if (t + step > dur + 1e-6 && Math.abs(t - dur) < 1e-6) s.style.transform = "translateX(-100%)";
+    el.appendChild(s);
+  }
+}
+
+["spec", "lane"].forEach((id) => $(id).addEventListener("click", (e) => {
+  const f = files[current]; if (!f || !f.result) return;
+  const r = e.currentTarget.getBoundingClientRect();
+  $("player").currentTime = ((e.clientX - r.left) / r.width) * f.result.dur; render();
+}));
+function setThreshold(v) { threshold = v; $("thr").value = v; $("thrOut").textContent = v.toFixed(2); }
+$("thr").addEventListener("input", (e) => { setThreshold(parseFloat(e.target.value)); render(); });
+let raf = 0;
+const tick = () => { render(); raf = $("player").paused ? 0 : requestAnimationFrame(tick); };
+$("player").addEventListener("play", () => { if (!raf) raf = requestAnimationFrame(tick); });
+$("player").addEventListener("seeked", render);
+window.addEventListener("resize", () => { if (files[current]?.result) { renderTicks(); render(); } });
+matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", render);
+</script>
+</body>
+</html>
